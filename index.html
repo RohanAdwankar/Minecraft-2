@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple 3D Game</title>
+    <style>
+        body { margin: 0; cursor: crosshair; }
+        canvas { display: block; }
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 24px;
+            pointer-events: none;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+            pointer-events: none;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            font-family: Arial, sans-serif;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="score">Score: 0</div>
+    <div id="crosshair">+</div>
+    <div id="instructions">
+        Use WASD or arrow keys to move<br>
+        Mouse to aim<br>
+        Click to shoot<br>
+        Collect or shoot the floating cubes!<br>
+        Press ESC to toggle mouse control
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000000);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        
+        const playerGeometry = new THREE.BoxGeometry(0.5, 1.5, 0.5);
+        const playerMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+        const player = new THREE.Mesh(playerGeometry, playerMaterial);
+        player.position.y = 1;
+        scene.add(player);
+
+        
+        const floorGeometry = new THREE.PlaneGeometry(40, 40);
+        const floorMaterial = new THREE.MeshPhongMaterial({ color: 0x808080, side: THREE.DoubleSide });
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = Math.PI / 2;
+        floor.position.y = 0;
+        scene.add(floor);
+
+        
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(0, 10, 0);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040));
+
+        
+        let score = 0;
+        const scoreElement = document.getElementById('score');
+        const collectibles = [];
+        const projectiles = [];
+        const playerSpeed = 0.15;
+        const projectileSpeed = 1.0;
+        let playerVelocity = new THREE.Vector3();
+        const gravity = -0.01;
+        let mouseX = 0;
+        let mouseY = 0;
+        let isPointerLocked = false;
+
+        
+        document.addEventListener('click', () => {
+            if (!isPointerLocked) {
+                renderer.domElement.requestPointerLock();
+            }
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            isPointerLocked = document.pointerLockElement === renderer.domElement;
+        });
+
+        document.addEventListener('mousemove', (event) => {
+            if (isPointerLocked) {
+                mouseX -= event.movementX * 0.002;
+                mouseY -= event.movementY * 0.002;
+                mouseY = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, mouseY));
+            }
+        });
+
+        
+        const keys = {};
+        document.addEventListener('keydown', (event) => {
+            keys[event.key] = true;
+            if (event.key === 'Escape') {
+                if (isPointerLocked) {
+                    document.exitPointerLock();
+                }
+            }
+        });
+        document.addEventListener('keyup', (event) => keys[event.key] = false);
+
+        
+        document.addEventListener('click', () => {
+            if (isPointerLocked) {
+                const projectileGeometry = new THREE.SphereGeometry(0.1); 
+                const projectileMaterial = new THREE.MeshPhongMaterial({ color: 0x00ffff });
+                const projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+                
+                
+                projectile.position.copy(camera.position);
+                
+                
+                const direction = new THREE.Vector3(0, 0, -1);
+                direction.applyQuaternion(camera.quaternion);
+                projectile.userData.direction = direction;
+                
+                scene.add(projectile);
+                projectiles.push(projectile);
+            }
+        });
+
+        
+        function createCollectible() {
+            const geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const material = new THREE.MeshPhongMaterial({ color: 0xffff00 });
+            const collectible = new THREE.Mesh(geometry, material);
+            
+            
+            collectible.position.x = Math.random() * 36 - 18;
+            collectible.position.z = Math.random() * 36 - 18;
+            collectible.position.y = Math.random() * 3 + 1;
+            
+            scene.add(collectible);
+            collectibles.push(collectible);
+        }
+
+        
+        for (let i = 0; i < 5; i++) {
+            createCollectible();
+        }
+
+        
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (isPointerLocked) {
+                
+                camera.rotation.order = 'YXZ';
+                camera.rotation.x = mouseY;
+                camera.rotation.y = mouseX;
+
+                
+                const forward = new THREE.Vector3(0, 0, -1);
+                const right = new THREE.Vector3(1, 0, 0);
+                forward.applyQuaternion(camera.quaternion);
+                right.applyQuaternion(camera.quaternion);
+                forward.y = 0;
+                right.y = 0;
+                forward.normalize();
+                right.normalize();
+
+                
+                const moveSpeed = playerSpeed;
+                if (keys['w'] || keys['ArrowUp']) {
+                    player.position.add(forward.multiplyScalar(moveSpeed));
+                }
+                if (keys['s'] || keys['ArrowDown']) {
+                    player.position.sub(forward.multiplyScalar(moveSpeed));
+                }
+                if (keys['a'] || keys['ArrowLeft']) {
+                    player.position.sub(right.multiplyScalar(moveSpeed));
+                }
+                if (keys['d'] || keys['ArrowRight']) {
+                    player.position.add(right.multiplyScalar(moveSpeed));
+                }
+
+                
+                player.position.x = Math.max(-18, Math.min(18, player.position.x));
+                player.position.z = Math.max(-18, Math.min(18, player.position.z));
+
+                
+                camera.position.copy(player.position);
+                camera.position.y = player.position.y + 0.5;
+            }
+
+            
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const projectile = projectiles[i];
+                projectile.position.add(projectile.userData.direction.multiplyScalar(projectileSpeed));
+                
+                
+                if (projectile.position.distanceTo(player.position) > 50) {
+                    scene.remove(projectile);
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+                
+                
+                for (let j = collectibles.length - 1; j >= 0; j--) {
+                    const collectible = collectibles[j];
+                    const distance = projectile.position.distanceTo(collectible.position);
+                    if (distance < 0.75) {
+                        scene.remove(collectible);
+                        scene.remove(projectile);
+                        collectibles.splice(j, 1);
+                        projectiles.splice(i, 1);
+                        score += 15;
+                        scoreElement.textContent = `Score: ${score}`;
+                        createCollectible();
+                        break;
+                    }
+                }
+            }
+
+            
+            for (let i = collectibles.length - 1; i >= 0; i--) {
+                const collectible = collectibles[i];
+                collectible.rotation.x += 0.01;
+                collectible.rotation.y += 0.01;
+
+                const distance = player.position.distanceTo(collectible.position);
+                if (distance < 1) {
+                    scene.remove(collectible);
+                    collectibles.splice(i, 1);
+                    score += 10;
+                    scoreElement.textContent = `Score: ${score}`;
+                    createCollectible();
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
