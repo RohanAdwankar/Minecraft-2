@@ -65,12 +65,20 @@
         const blockSize = 2;
         const terrainChunks = new Map();
         
-        function createTerrainChunk(chunkX, chunkZ) {
+        const blockGeometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
+        const surfaceMaterial = new THREE.MeshPhongMaterial({ color: 0x507050 });
+        const dirtMaterial = new THREE.MeshPhongMaterial({ color: 0x705030 });
+        
+        function createInstancedChunk(chunkX, chunkZ) {
             const key = `${chunkX},${chunkZ}`;
             if (terrainChunks.has(key)) return;
 
             const chunkSize = 16;
             const chunk = new THREE.Group();
+            
+            const surfaceBlocks = [];
+            const dirtBlocks = [];
+            const matrix = new THREE.Matrix4();
 
             for (let x = 0; x < chunkSize; x++) {
                 for (let z = 0; z < chunkSize; z++) {
@@ -82,21 +90,36 @@
                         Math.sin(worldX * 0.05 + worldZ * 0.05) * 2
                     );
 
-                    for (let y = 0; y < height + 5; y++) {
-                        const block = new THREE.Mesh(
-                            new THREE.BoxGeometry(blockSize, blockSize, blockSize),
-                            new THREE.MeshPhongMaterial({ 
-                                color: y === height + 4 ? 0x507050 : 0x705030
-                            })
-                        );
-                        block.position.set(
-                            x * blockSize,
-                            y * blockSize,
-                            z * blockSize
-                        );
-                        chunk.add(block);
+                    matrix.setPosition(x * blockSize, height * blockSize, z * blockSize);
+                    surfaceBlocks.push(matrix.clone());
+
+                    for (let y = 0; y < height; y++) {
+                        matrix.setPosition(x * blockSize, y * blockSize, z * blockSize);
+                        dirtBlocks.push(matrix.clone());
                     }
                 }
+            }
+
+            if (surfaceBlocks.length > 0) {
+                const surfaceInstancedMesh = new THREE.InstancedMesh(
+                    blockGeometry,
+                    surfaceMaterial,
+                    surfaceBlocks.length
+                );
+                surfaceBlocks.forEach((matrix, i) => surfaceInstancedMesh.setMatrixAt(i, matrix));
+                surfaceInstancedMesh.instanceMatrix.needsUpdate = true;
+                chunk.add(surfaceInstancedMesh);
+            }
+
+            if (dirtBlocks.length > 0) {
+                const dirtInstancedMesh = new THREE.InstancedMesh(
+                    blockGeometry,
+                    dirtMaterial,
+                    dirtBlocks.length
+                );
+                dirtBlocks.forEach((matrix, i) => dirtInstancedMesh.setMatrixAt(i, matrix));
+                dirtInstancedMesh.instanceMatrix.needsUpdate = true;
+                chunk.add(dirtInstancedMesh);
             }
 
             chunk.position.set(
@@ -104,6 +127,7 @@
                 0,
                 chunkZ * chunkSize * blockSize
             );
+            
             scene.add(chunk);
             terrainChunks.set(key, chunk);
         }
@@ -113,9 +137,24 @@
             const playerChunkZ = Math.floor(player.position.z / (16 * blockSize));
             const renderDistance = 2;
 
+            // Remove far chunks
+            for (const [key, chunk] of terrainChunks) {
+                const [chunkX, chunkZ] = key.split(',').map(Number);
+                if (Math.abs(chunkX - playerChunkX) > renderDistance || 
+                    Math.abs(chunkZ - playerChunkZ) > renderDistance) {
+                    scene.remove(chunk);
+                    terrainChunks.delete(key);
+                }
+            }
+
+            // Add new chunks
             for (let x = -renderDistance; x <= renderDistance; x++) {
                 for (let z = -renderDistance; z <= renderDistance; z++) {
-                    createTerrainChunk(playerChunkX + x, playerChunkZ + z);
+                    const targetX = playerChunkX + x;
+                    const targetZ = playerChunkZ + z;
+                    if (!terrainChunks.has(`${targetX},${targetZ}`)) {
+                        setTimeout(() => createInstancedChunk(targetX, targetZ), 0);
+                    }
                 }
             }
         }
@@ -129,8 +168,8 @@
         const scoreElement = document.getElementById('score');
         const collectibles = [];
         const projectiles = [];
-        const playerSpeed = 1.0;
-        const projectileSpeed = 2.0;
+        const playerSpeed = 0.2;
+        const projectileSpeed = 1.0;
         let playerVelocity = new THREE.Vector3();
         let mouseX = 0;
         let mouseY = 0;
